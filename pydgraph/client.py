@@ -18,6 +18,8 @@ This module contains the main user-facing methods for interacting with the
 Dgraph server over gRPC.
 """
 import grpc
+import json
+
 from pydgraph import txn
 from pydgraph import util
 from pydgraph.meta import VERSION
@@ -62,6 +64,61 @@ class DgraphClient(object):
         response = await self.stub.Query.future(request, timeout)
         self.merge_context(response.txn)
         return response
+
+    def mutate(self, setnquads=None, delnquads=None, *args, **kwargs):
+        """Mutate extends MutateObj to allow mutations to be specified as
+        N-Quad strings.
+
+        Mutations also support a commit_now method which commits the transaction
+        along with the mutation. This mode is presently unsupported.
+
+        Params
+        ======
+          * setnquads: a string containing nquads to set
+          * delnquads: a string containing nquads to delete
+
+        N-Quad format is
+            <subj> <pred> <obj> .
+        """
+        mutation = api.Mutation(commit_now=True)
+        if kwargs.pop('ignore_index_conflict', None):
+            mutation.ignore_index_conflict = True
+        if setnquads:
+            mutation.set_nquads=setnquads.encode('utf8')
+        if delnquads:
+            mutation.del_nquads=delnquads.encode('utf8')
+
+        assigned = self.stub.Mutate(mutation, *args, **kwargs)
+        self.merge_context(assigned.context)
+        return assigned
+
+    def mutate_obj(self, setobj=None, delobj=None, *args, **kwargs):
+        """Mutate allows modification of the data stored in the DGraph instance.
+
+        A mutation can be described either using JSON or via RDF quads. This
+        method presently support mutations described via JSON.
+
+        Mutations also support a commit_now method which commits the transaction
+        along with the mutation. This mode is presently unsupported.
+
+        Params
+        ======
+          * setobj: an object with data to set, to be encoded as JSON and
+                converted to utf8 bytes
+          * delobj: an object with data to be deleted, to be encoded as JSON
+                and converted to utf8 bytes.
+        """
+        mutation = api.Mutation(commit_now=True)
+        if kwargs.pop('ignore_index_conflict', None):
+            mutation.ignore_index_conflict = True
+        if setobj:
+            mutation.set_json=json.dumps(setobj).encode('utf8')
+        if delobj:
+            mutation.delete_json=json.dumps(delobj).encode('utf8')
+
+        assigned = self.stub.Mutate(mutation, *args, *kwargs)
+        self.merge_context(assigned.context)
+        return assigned
 
     def alter(self, schema, timeout=None):
         """Alter schema at the other end of the connection."""
